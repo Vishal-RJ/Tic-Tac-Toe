@@ -1,0 +1,5 @@
+{
+  "name": "Neon Bomb Tic-Tac-Toe",
+  "description": "A futuristic Tic-Tac-Toe game featuring an AI opponent powered by Gemini, high-octane animations, and a special 'Bomb' mechanic that lets you blast away your opponent's marks.",
+  "requestFramePermissions": []
+}
