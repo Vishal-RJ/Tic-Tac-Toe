@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { CellValue } from '../types';
+import { CellValue } from '../types.ts';
 
 interface CellProps {
   value: CellValue;
@@ -13,23 +13,26 @@ interface CellProps {
 const Cell: React.FC<CellProps> = ({ value, onClick, isWinningCell, isBombMode }) => {
   return (
     <motion.button
-      whileHover={{ scale: 0.98, backgroundColor: "rgba(30, 41, 59, 0.8)" }}
-      whileTap={{ scale: 0.95 }}
+      whileHover={{ scale: 0.96, backgroundColor: "rgba(30, 41, 59, 0.4)" }}
+      whileTap={{ scale: 0.92 }}
       onClick={onClick}
-      className={`relative h-24 w-24 sm:h-32 sm:w-32 rounded-xl border-2 transition-all duration-300 flex items-center justify-center text-5xl font-orbitron
-        ${isWinningCell ? 'border-yellow-400 bg-yellow-400/10 shadow-[0_0_20px_rgba(250,204,21,0.4)]' : 'border-slate-700 bg-slate-800/50'}
-        ${isBombMode && !value ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}
-        ${isBombMode && value ? 'border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.5)]' : ''}
+      className={`relative h-20 w-20 sm:h-28 sm:w-28 rounded-2xl border-2 transition-all duration-300 flex items-center justify-center text-5xl font-orbitron overflow-hidden
+        ${isWinningCell ? 'border-yellow-400 bg-yellow-400/10 shadow-[0_0_25px_rgba(250,204,21,0.5)] z-20' : 'border-slate-800 bg-slate-900/40'}
+        ${isBombMode && value && value !== 'X' ? 'border-red-500 shadow-[0_0_20px_rgba(239,68,68,0.4)] cursor-crosshair' : ''}
+        ${isBombMode && (!value || value === 'X') ? 'opacity-40 cursor-not-allowed' : ''}
       `}
     >
+      {/* Background scanline effect */}
+      <div className="absolute inset-0 opacity-10 bg-gradient-to-b from-transparent via-white/10 to-transparent pointer-events-none animate-pulse" />
+
       <AnimatePresence mode='wait'>
         {value === 'X' && (
           <motion.div
             key="X"
-            initial={{ scale: 0, rotate: -45, opacity: 0 }}
+            initial={{ scale: 0, rotate: -90, opacity: 0 }}
             animate={{ scale: 1, rotate: 0, opacity: 1 }}
             exit={{ scale: 0, opacity: 0 }}
-            className="text-blue-400 neon-text-blue"
+            className="text-cyan-400 neon-cyan"
           >
             X
           </motion.div>
@@ -37,25 +40,23 @@ const Cell: React.FC<CellProps> = ({ value, onClick, isWinningCell, isBombMode }
         {value === 'O' && (
           <motion.div
             key="O"
-            initial={{ scale: 0, rotate: 45, opacity: 0 }}
+            initial={{ scale: 0, rotate: 90, opacity: 0 }}
             animate={{ scale: 1, rotate: 0, opacity: 1 }}
             exit={{ scale: 0, opacity: 0 }}
-            className="text-pink-400 neon-text-pink"
+            className="text-fuchsia-400 neon-fuchsia"
           >
             O
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Bomb indicator if hovering in bomb mode over an opponent's cell */}
-      {isBombMode && value && (
-        <motion.div
-          initial={{ opacity: 0, scale: 0 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="absolute inset-0 flex items-center justify-center bg-red-500/20 rounded-xl"
-        >
-          <span className="text-xl">💣</span>
-        </motion.div>
+      {isBombMode && value && value !== 'X' && (
+        <motion.div 
+          initial={{ opacity: 0 }}
+          animate={{ opacity: [0.2, 0.6, 0.2] }}
+          transition={{ repeat: Infinity, duration: 1.5 }}
+          className="absolute inset-0 bg-red-600/20"
+        />
       )}
     </motion.button>
   );

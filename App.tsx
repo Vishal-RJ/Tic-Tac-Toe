@@ -1,10 +1,10 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { GameState, CellValue, Player } from './types';
-import { WIN_PATTERNS, INITIAL_BOMBS } from './constants';
-import { getAIMove } from './services/geminiService';
-import Cell from './components/Cell';
+import { GameState, CellValue, Player } from './types.ts';
+import { WIN_PATTERNS, INITIAL_BOMBS } from './constants.ts';
+import { getAIMove } from './services/geminiService.ts';
+import Cell from './components/Cell.tsx';
 
 const App: React.FC = () => {
   const [game, setGame] = useState<GameState>({
@@ -14,11 +14,12 @@ const App: React.FC = () => {
     winningLine: null,
     bombs: { X: INITIAL_BOMBS, O: INITIAL_BOMBS },
     isAITurn: false,
-    aiMessage: "Your move, human. Don't take all day."
+    aiMessage: "Arena online. Make your move, user."
   });
 
   const [bombMode, setBombMode] = useState(false);
   const [explosion, setExplosion] = useState<number | null>(null);
+  const [screenShake, setScreenShake] = useState(false);
 
   const checkWinner = (board: CellValue[]): { winner: Player | 'Draw' | null, line: number[] | null } => {
     for (const pattern of WIN_PATTERNS) {
@@ -27,30 +28,30 @@ const App: React.FC = () => {
         return { winner: board[a] as Player, line: pattern };
       }
     }
-    if (board.every(cell => cell !== null)) {
-      return { winner: 'Draw', line: null };
-    }
+    if (board.every(cell => cell !== null)) return { winner: 'Draw', line: null };
     return { winner: null, line: null };
   };
 
+  const handleExplosion = (index: number) => {
+    setExplosion(index);
+    setScreenShake(true);
+    setTimeout(() => {
+      setExplosion(null);
+      setScreenShake(false);
+    }, 1000);
+  };
+
   const playMove = useCallback((index: number, isBomb: boolean = false) => {
-    if (game.winner || game.isAITurn) return;
+    if (game.winner || (game.isAITurn && game.currentPlayer === 'O')) return;
     
     const newBoard = [...game.board];
     
-    // Validations
-    if (!isBomb && newBoard[index] !== null) return;
     if (isBomb) {
-      if (game.bombs[game.currentPlayer] <= 0) return;
-      if (newBoard[index] === null || newBoard[index] === game.currentPlayer) return;
-      
-      // Trigger explosion animation
-      setExplosion(index);
-      setTimeout(() => setExplosion(null), 600);
-      
-      // Clear the cell
+      if (game.bombs[game.currentPlayer] <= 0 || newBoard[index] === null || newBoard[index] === game.currentPlayer) return;
+      handleExplosion(index);
       newBoard[index] = null;
     } else {
+      if (newBoard[index] !== null) return;
       newBoard[index] = game.currentPlayer;
     }
 
@@ -63,51 +64,61 @@ const App: React.FC = () => {
       currentPlayer: nextPlayer,
       winner,
       winningLine: line,
-      bombs: isBomb 
-        ? { ...prev.bombs, [prev.currentPlayer]: prev.bombs[prev.currentPlayer] - 1 }
-        : prev.bombs,
+      bombs: isBomb ? { ...prev.bombs, [prev.currentPlayer]: prev.bombs[prev.currentPlayer] - 1 } : prev.bombs,
       isAITurn: winner === null && nextPlayer === 'O',
-      aiMessage: winner ? prev.aiMessage : (isBomb ? "A BOMB? That's desperate!" : prev.aiMessage)
     }));
     
     setBombMode(false);
   }, [game]);
 
-  // AI Logic
   useEffect(() => {
     if (game.isAITurn && !game.winner) {
-      const timer = setTimeout(async () => {
-        const aiData = await getAIMove(game.board, 'O', game.bombs.X);
-        
-        // Simple AI move execution (AI doesn't use bombs for now to keep it fair, or we can add it)
-        const moveIndex = aiData.move;
+      const runAI = async () => {
+        await new Promise(r => setTimeout(r, 800)); // Dramatic pause
+        const aiData = await getAIMove(game.board, 'O', game.bombs.O, game.bombs.X);
         
         setGame(prev => {
           const newBoard = [...prev.board];
-          // If suggested move is occupied (AI logic error or edge case), find first empty
-          const finalIndex = newBoard[moveIndex] === null ? moveIndex : newBoard.findIndex(c => c === null);
-          
-          if (finalIndex === -1) return prev;
+          let finalIndex = aiData.move;
+          let finalIsBomb = aiData.isBomb && prev.bombs.O > 0;
 
-          newBoard[finalIndex] = 'O';
+          // AI Verification
+          if (finalIsBomb) {
+            if (newBoard[finalIndex] !== 'X') {
+              finalIsBomb = false;
+              finalIndex = newBoard.findIndex(c => c === null);
+            }
+          } else if (newBoard[finalIndex] !== null) {
+            finalIndex = newBoard.findIndex(c => c === null);
+          }
+
+          if (finalIndex === -1) return { ...prev, isAITurn: false, currentPlayer: 'X' };
+
+          if (finalIsBomb) {
+            handleExplosion(finalIndex);
+            newBoard[finalIndex] = null;
+          } else {
+            newBoard[finalIndex] = 'O';
+          }
+
           const { winner, line } = checkWinner(newBoard);
-          
           return {
             ...prev,
             board: newBoard,
             currentPlayer: 'X',
             winner,
             winningLine: line,
+            bombs: finalIsBomb ? { ...prev.bombs, O: prev.bombs.O - 1 } : prev.bombs,
             isAITurn: false,
             aiMessage: aiData.commentary
           };
         });
-      }, 1000);
-      return () => clearTimeout(timer);
+      };
+      runAI();
     }
-  }, [game.isAITurn, game.board, game.winner, game.bombs.X]);
+  }, [game.isAITurn, game.winner]);
 
-  const resetGame = () => {
+  const reset = () => {
     setGame({
       board: Array(9).fill(null),
       currentPlayer: 'X',
@@ -115,177 +126,170 @@ const App: React.FC = () => {
       winningLine: null,
       bombs: { X: INITIAL_BOMBS, O: INITIAL_BOMBS },
       isAITurn: false,
-      aiMessage: "New game? I'll go easy on you... maybe."
+      aiMessage: "Arena reset. Initiative: USER_X."
     });
     setBombMode(false);
-    setExplosion(null);
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-slate-950 text-slate-100 overflow-hidden relative">
-      {/* Background Glows */}
-      <div className="absolute top-0 left-0 w-96 h-96 bg-blue-500/10 rounded-full blur-[120px] -translate-x-1/2 -translate-y-1/2 pointer-events-none" />
-      <div className="absolute bottom-0 right-0 w-96 h-96 bg-pink-500/10 rounded-full blur-[120px] translate-x-1/2 translate-y-1/2 pointer-events-none" />
+    <div className="min-h-screen bg-grid flex flex-col items-center justify-center p-6 select-none relative">
+      {/* Visual background layers */}
+      <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-cyan-900/10 via-transparent to-fuchsia-900/10 pointer-events-none" />
+      
+      <AnimatePresence>
+        {screenShake && (
+          <motion.div 
+            initial={{ scale: 1 }}
+            animate={{ x: [-5, 5, -5, 5, 0], y: [-5, 5, -5, 5, 0] }}
+            className="fixed inset-0 bg-red-600/5 z-0 pointer-events-none"
+          />
+        )}
+      </AnimatePresence>
 
-      {/* Header */}
       <motion.div 
-        initial={{ y: -50, opacity: 0 }}
+        initial={{ y: -30, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         className="text-center mb-8 z-10"
       >
-        <h1 className="text-4xl sm:text-6xl font-orbitron font-bold tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-pink-500 mb-2">
+        <h1 className="text-6xl font-orbitron font-bold tracking-[0.2em] bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 via-blue-500 to-fuchsia-600 mb-2 drop-shadow-[0_0_15px_rgba(34,211,238,0.5)]">
           NEON BOMB
         </h1>
-        <p className="text-slate-400 font-medium">ULTIMATE TIC-TAC-TOE EXPERIENCE</p>
+        <div className="flex items-center justify-center gap-4 text-slate-500 text-xs tracking-widest uppercase font-orbitron">
+          <span className="w-8 h-[1px] bg-slate-800" />
+          Tactical Grid System
+          <span className="w-8 h-[1px] bg-slate-800" />
+        </div>
       </motion.div>
 
-      {/* AI Message Bubble */}
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={game.aiMessage}
-          initial={{ scale: 0.8, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          exit={{ scale: 0.8, opacity: 0 }}
-          className="mb-8 px-6 py-3 bg-slate-800/80 border border-slate-700 rounded-2xl shadow-xl max-w-xs text-center relative z-10"
-        >
-          <p className="text-sm italic text-slate-300">"{game.aiMessage}"</p>
-          <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-slate-800 border-r border-b border-slate-700 rotate-45" />
-        </motion.div>
-      </AnimatePresence>
-
-      {/* Game Board Container */}
-      <div className="relative z-10">
-        <div className="grid grid-cols-3 gap-3 sm:gap-4 p-4 bg-slate-900/40 rounded-3xl border border-slate-800 backdrop-blur-md shadow-2xl">
-          {game.board.map((cell, i) => (
-            <Cell
-              key={i}
-              value={cell}
-              onClick={() => playMove(i, bombMode)}
-              isWinningCell={game.winningLine?.includes(i) || false}
-              isBombMode={bombMode}
-            />
-          ))}
-        </div>
-
-        {/* Explosion Effect Overlay */}
-        <AnimatePresence>
-          {explosion !== null && (
-            <motion.div
-              initial={{ scale: 0, opacity: 0 }}
-              animate={{ scale: [0, 2, 2.5], opacity: [1, 1, 0] }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.5 }}
-              style={{
-                position: 'absolute',
-                top: `${Math.floor(explosion / 3) * 33 + 16.5}%`,
-                left: `${(explosion % 3) * 33 + 16.5}%`,
-                transform: 'translate(-50%, -50%)',
-              }}
-              className="w-24 h-24 sm:w-32 sm:h-32 rounded-full bg-gradient-to-r from-orange-500 to-red-600 pointer-events-none z-50 flex items-center justify-center text-4xl"
-            >
-              💥
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-
-      {/* Controls */}
-      <div className="mt-8 flex flex-col items-center gap-6 w-full max-w-md z-10">
-        <div className="flex justify-between w-full items-center">
-          <div className={`p-4 rounded-2xl border transition-all ${game.currentPlayer === 'X' ? 'border-blue-500 bg-blue-500/10 neon-border-blue' : 'border-slate-800 bg-slate-900/50'}`}>
-            <p className="text-xs uppercase tracking-widest text-slate-400 mb-1">Player X</p>
-            <div className="flex items-center gap-3">
-              <span className="text-2xl font-orbitron text-blue-400">Human</span>
-              <div className="h-6 w-px bg-slate-700" />
-              <div className="flex gap-1">
-                {[...Array(INITIAL_BOMBS)].map((_, i) => (
-                  <span key={i} className={i < game.bombs.X ? "grayscale-0" : "grayscale opacity-20"}>💣</span>
-                ))}
-              </div>
+      <div className="z-10 w-full max-w-sm">
+        <div className="flex justify-between items-end mb-4 px-2">
+          <div className={`transition-all duration-500 ${game.currentPlayer === 'X' ? 'scale-110' : 'opacity-40 grayscale'}`}>
+            <p className="text-cyan-400 font-bold text-lg neon-cyan">USER_X</p>
+            <div className="flex gap-1">
+              {[...Array(INITIAL_BOMBS)].map((_, i) => (
+                <span key={i} className={i < game.bombs.X ? 'text-lg opacity-100' : 'text-lg opacity-20 grayscale'}>💣</span>
+              ))}
             </div>
           </div>
-
-          <div className="text-2xl font-orbitron text-slate-600">VS</div>
-
-          <div className={`p-4 rounded-2xl border transition-all ${game.currentPlayer === 'O' ? 'border-pink-500 bg-pink-500/10 neon-border-pink' : 'border-slate-800 bg-slate-900/50'}`}>
-            <p className="text-xs uppercase tracking-widest text-slate-400 mb-1">Player O</p>
-            <div className="flex items-center gap-3">
-              <div className="flex gap-1">
-                {[...Array(INITIAL_BOMBS)].map((_, i) => (
-                  <span key={i} className={i < game.bombs.O ? "grayscale-0" : "grayscale opacity-20"}>💣</span>
-                ))}
-              </div>
-              <div className="h-6 w-px bg-slate-700" />
-              <span className="text-2xl font-orbitron text-pink-400">Gemini</span>
+          <motion.div 
+            key={game.aiMessage}
+            initial={{ opacity: 0, y: 5 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="glass-panel px-4 py-2 rounded-xl text-[10px] text-cyan-100 border-cyan-500/20 max-w-[140px] text-center"
+          >
+            {game.aiMessage}
+          </motion.div>
+          <div className={`transition-all duration-500 text-right ${game.currentPlayer === 'O' ? 'scale-110' : 'opacity-40 grayscale'}`}>
+            <p className="text-fuchsia-400 font-bold text-lg neon-fuchsia">CORE_O</p>
+            <div className="flex gap-1 justify-end">
+              {[...Array(INITIAL_BOMBS)].map((_, i) => (
+                <span key={i} className={i < game.bombs.O ? 'text-lg opacity-100' : 'text-lg opacity-20 grayscale'}>💣</span>
+              ))}
             </div>
           </div>
         </div>
 
-        <div className="flex gap-4 w-full">
+        <div className="relative glass-panel p-4 rounded-[2.5rem] shadow-[0_0_50px_rgba(0,0,0,0.5)] border-slate-700/30 overflow-hidden">
+          <div className="grid grid-cols-3 gap-3 relative z-10">
+            {game.board.map((cell, i) => (
+              <Cell
+                key={i}
+                value={cell}
+                onClick={() => playMove(i, bombMode)}
+                isWinningCell={game.winningLine?.includes(i) || false}
+                isBombMode={bombMode}
+              />
+            ))}
+          </div>
+
+          <AnimatePresence>
+            {explosion !== null && (
+              <div 
+                style={{
+                  position: 'absolute',
+                  top: `${Math.floor(explosion / 3) * 33.3 + 16.6}%`,
+                  left: `${(explosion % 3) * 33.3 + 16.6}%`,
+                  transform: 'translate(-50%, -50%)',
+                }}
+                className="pointer-events-none z-50"
+              >
+                <motion.div initial={{ scale: 0 }} animate={{ scale: 4, opacity: 0 }} className="w-20 h-20 rounded-full bg-orange-500/40 mix-blend-screen" />
+                <motion.div initial={{ scale: 0 }} animate={{ scale: 6, opacity: 0 }} className="absolute inset-0 w-20 h-20 rounded-full border-2 border-red-500" />
+                <motion.div 
+                  initial={{ y: 20, opacity: 1 }} 
+                  animate={{ y: -60, opacity: 0 }} 
+                  className="absolute inset-0 flex items-center justify-center font-orbitron font-bold text-red-500 italic text-2xl"
+                >
+                  DESTRUCT
+                </motion.div>
+              </div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        <div className="mt-8 flex gap-4">
           <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={() => {
-              if (game.bombs[game.currentPlayer] > 0) {
-                setBombMode(!bombMode);
-              }
-            }}
-            disabled={game.bombs[game.currentPlayer] <= 0 || game.isAITurn || !!game.winner}
-            className={`flex-1 py-4 rounded-xl font-bold font-orbitron border transition-all flex items-center justify-center gap-2
-              ${bombMode ? 'bg-red-500 border-red-400 text-white shadow-[0_0_20px_rgba(239,68,68,0.5)]' : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'}
-              ${(game.bombs[game.currentPlayer] <= 0 || game.isAITurn || !!game.winner) ? 'opacity-30 cursor-not-allowed' : ''}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => game.bombs.X > 0 && setBombMode(!bombMode)}
+            disabled={game.bombs.X === 0 || game.isAITurn || !!game.winner}
+            className={`flex-1 py-4 rounded-2xl font-orbitron font-bold transition-all border-2 flex items-center justify-center gap-3
+              ${bombMode ? 'bg-red-600 border-red-400 text-white shadow-[0_0_20px_rgba(220,38,38,0.5)]' : 'glass-panel border-slate-700 text-slate-300'}
+              ${(game.bombs.X === 0 || game.isAITurn || !!game.winner) ? 'opacity-20 cursor-not-allowed' : ''}
             `}
           >
-            {bombMode ? "SELECT TARGET" : "USE BOMB"} 💣
+            {bombMode ? "SELECT TARGET" : "TACTICAL BOMB"}
           </motion.button>
-
+          
           <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={resetGame}
-            className="flex-1 py-4 rounded-xl font-bold font-orbitron bg-slate-100 text-slate-900 border border-white hover:bg-white transition-all shadow-xl"
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={reset}
+            className="px-6 py-4 rounded-2xl glass-panel border-slate-700 text-slate-300 font-orbitron hover:bg-slate-800 transition-colors"
           >
-            RESET GAME
+            REBOOT
           </motion.button>
         </div>
       </div>
 
-      {/* Game Over Modal */}
       <AnimatePresence>
         {game.winner && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4"
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/90 backdrop-blur-xl p-6"
           >
             <motion.div
-              initial={{ scale: 0.5, y: 50 }}
-              animate={{ scale: 1, y: 0 }}
-              className="bg-slate-900 border border-slate-700 p-8 rounded-3xl shadow-2xl text-center max-w-sm w-full"
+              initial={{ scale: 0.8, rotateX: 30 }}
+              animate={{ scale: 1, rotateX: 0 }}
+              className="glass-panel p-10 rounded-[3rem] border-slate-700 shadow-2xl text-center max-w-sm w-full"
             >
-              <h2 className="text-5xl font-orbitron font-bold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-yellow-400 to-orange-500">
-                {game.winner === 'Draw' ? "DRAW!" : `${game.winner} WINS!`}
+              <h2 className="text-5xl font-orbitron font-bold mb-6 tracking-widest text-white">
+                {game.winner === 'Draw' ? "EQUILIBRIUM" : "DOMINANCE"}
               </h2>
-              <p className="text-slate-400 mb-8 font-medium">
-                {game.winner === 'X' ? "Humanity lives to play another day." : 
-                 game.winner === 'O' ? "Better luck next time, fleshy creature." : 
-                 "A perfect match of wits."}
+              <div className={`text-8xl mb-8 ${game.winner === 'X' ? 'text-cyan-400' : 'text-fuchsia-400'}`}>
+                {game.winner === 'X' ? "X" : game.winner === 'O' ? "O" : "="}
+              </div>
+              <p className="text-slate-400 mb-10 italic font-medium">
+                {game.winner === 'X' ? "Biological persistence verified." : 
+                 game.winner === 'O' ? "Synthetic logic is absolute." : 
+                 "System in total deadlock."}
               </p>
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                onClick={resetGame}
-                className="w-full py-4 rounded-xl font-bold font-orbitron bg-blue-500 text-white hover:bg-blue-400 transition-all shadow-[0_0_20px_rgba(59,130,246,0.4)]"
+                onClick={reset}
+                className="w-full py-5 rounded-3xl font-orbitron font-bold bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-xl"
               >
-                PLAY AGAIN
+                INITIALIZE RE-MATCH
               </motion.button>
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      <footer className="mt-12 text-slate-600 text-xs font-medium tracking-widest uppercase">
-        Powered by Gemini • Designed for Victory
+      <footer className="mt-12 text-slate-800 text-[10px] font-orbitron tracking-[0.5em] uppercase pointer-events-none">
+        Arena Version 2.4.0 // Connection: Secure
       </footer>
     </div>
   );

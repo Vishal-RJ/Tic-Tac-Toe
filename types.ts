@@ -17,5 +17,6 @@ export interface GameState {
 
 export interface AIResponse {
   move: number;
+  isBomb: boolean;
   commentary: string;
 }
